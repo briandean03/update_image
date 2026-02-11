@@ -16,8 +16,11 @@ API_URL = "https://server.secrab.store/wp-json/wc/v3/products"
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("CONSUMER_SECRET")
 
-OLD_DOMAIN = "https://d1ef4a9755q128.cloudfront.net/images/"
-NEW_DOMAIN = "https://static.recar.lt/images/"
+# UPDATED: New transformation rules
+OLD_IMAGE_PATH = "/images/"
+NEW_IMAGE_PATH = "/pictures/"
+OLD_EXTENSION = ".jpg"
+NEW_EXTENSION = ".webp"
 
 PER_PAGE = 20
 START_PAGE = int(os.getenv("START_PAGE", 51))
@@ -43,9 +46,26 @@ def save_checkpoint(page, product_id=None):
         json.dump({"last_page": page, "last_product_id": product_id}, f)
 
 def transform_image_url(url: str) -> str:
-    if not url or OLD_DOMAIN not in url:
+    """
+    Transform image URLs from static.recar.lt domain:
+    - Replace /images/ with /pictures/
+    - Replace .jpg with .webp
+    """
+    if not url:
         return url
-    return url.replace(OLD_DOMAIN, NEW_DOMAIN).replace("/1050x700/", "/")
+    
+    # Only transform URLs containing static.recar.lt
+    if "static.recar.lt" not in url:
+        return url
+    
+    # Replace /images/ with /pictures/
+    transformed_url = url.replace(OLD_IMAGE_PATH, NEW_IMAGE_PATH)
+    
+    # Replace .jpg with .webp (case-insensitive)
+    transformed_url = transformed_url.replace(OLD_EXTENSION, NEW_EXTENSION)
+    transformed_url = transformed_url.replace(".JPG", NEW_EXTENSION)
+    
+    return transformed_url
 
 def normalize_urls(raw_value):
     if isinstance(raw_value, list):
@@ -63,18 +83,21 @@ def normalize_urls(raw_value):
 # ---- MAIN LOGIC ----
 
 def main():
-    # Remove checkpoint - always start fresh from START_PAGE
+    checkpoint = load_checkpoint()
+    resume_page = checkpoint.get("last_page", START_PAGE)
+    resume_product_id = checkpoint.get("last_product_id")
+
     total_checked = 0
     total_updated = 0
     total_skipped = 0
 
-    print(f"🔁 Starting from page {START_PAGE} to {END_PAGE}\n")
+    print(f"🔁 Resuming from page {resume_page}, after product ID {resume_product_id}\n")
 
     with open(LOG_FILE, mode="w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
         writer.writerow(["page", "product_id", "product_name", "old_url", "new_url", "status"])
 
-        for page in range(START_PAGE, END_PAGE + 1):
+        for page in range(resume_page, END_PAGE + 1):
             print(f"\n🔹 Fetching page {page} ...")
             response = requests.get(
                 API_URL,
@@ -96,6 +119,9 @@ def main():
                 continue
 
             for product in products:
+                if page == resume_page and resume_product_id and product["id"] <= resume_product_id:
+                    continue
+
                 total_checked += 1
                 meta_data = product.get("meta_data", [])
                 image_meta = next((m for m in meta_data if m.get("key") == "product_images_url"), None)
@@ -131,10 +157,12 @@ def main():
 
                 if update.status_code == 200:
                     print(f"  ✅ Updated product {product['id']}")
+                    save_checkpoint(page, product["id"])
                 else:
                     print(f"  ❌ Failed to update product {product['id']}: {update.status_code}")
                     writer.writerow([page, product["id"], product["name"], "-", "-", f"FAILED {update.status_code}"])
 
+            save_checkpoint(page)
             time.sleep(DELAY_SECONDS)
 
     print("\n----- SUMMARY -----")
@@ -143,11 +171,10 @@ def main():
     print(f"🧩 Updated: {total_updated}")
     print(f"⏩ Skipped: {total_skipped}")
     print(f"🗂️ Log file saved as: {LOG_FILE}")
+    print("📍 Last checkpoint saved at:", CHECKPOINT_FILE)
     print("-------------------")
-    print("🎯 Batch complete!")
-    
-def start_updater():
-    main()
+    print("🎯 Batch complete! You can safely stop and resume anytime.")
+
 
 # ---- FLASK WEB SERVICE FOR RENDER ----
 
