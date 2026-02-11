@@ -199,13 +199,12 @@ def main():
     print(f"🗂️ Log file saved as: {LOG_FILE}")
     print("-------------------")
     print("🎯 Batch complete!")
-
+    
+def start_updater():
+    main()
 
 if __name__ == "__main__":
     # Run the updater in background
     threading.Thread(target=start_updater, daemon=True).start()
     # Start Flask app to keep Render alive
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
-
-def start_updater():
-    main()
