@@ -145,7 +145,9 @@ def main():
     print(f"🗂️ Log file saved as: {LOG_FILE}")
     print("-------------------")
     print("🎯 Batch complete!")
-
+    
+def start_updater():
+    main()
 
 # ---- FLASK WEB SERVICE FOR RENDER ----
 
