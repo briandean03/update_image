@@ -63,21 +63,18 @@ def normalize_urls(raw_value):
 # ---- MAIN LOGIC ----
 
 def main():
-    checkpoint = load_checkpoint()
-    resume_page = checkpoint.get("last_page", START_PAGE)
-    resume_product_id = checkpoint.get("last_product_id")
-
+    # Remove checkpoint - always start fresh from START_PAGE
     total_checked = 0
     total_updated = 0
     total_skipped = 0
 
-    print(f"🔁 Resuming from page {resume_page}, after product ID {resume_product_id}\n")
+    print(f"🔁 Starting from page {START_PAGE} to {END_PAGE}\n")
 
     with open(LOG_FILE, mode="w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
         writer.writerow(["page", "product_id", "product_name", "old_url", "new_url", "status"])
 
-        for page in range(resume_page, END_PAGE + 1):
+        for page in range(START_PAGE, END_PAGE + 1):
             print(f"\n🔹 Fetching page {page} ...")
             response = requests.get(
                 API_URL,
@@ -99,9 +96,6 @@ def main():
                 continue
 
             for product in products:
-                if page == resume_page and resume_product_id and product["id"] <= resume_product_id:
-                    continue
-
                 total_checked += 1
                 meta_data = product.get("meta_data", [])
                 image_meta = next((m for m in meta_data if m.get("key") == "product_images_url"), None)
@@ -137,12 +131,10 @@ def main():
 
                 if update.status_code == 200:
                     print(f"  ✅ Updated product {product['id']}")
-                    save_checkpoint(page, product["id"])
                 else:
                     print(f"  ❌ Failed to update product {product['id']}: {update.status_code}")
                     writer.writerow([page, product["id"], product["name"], "-", "-", f"FAILED {update.status_code}"])
 
-            save_checkpoint(page)
             time.sleep(DELAY_SECONDS)
 
     print("\n----- SUMMARY -----")
@@ -151,9 +143,8 @@ def main():
     print(f"🧩 Updated: {total_updated}")
     print(f"⏩ Skipped: {total_skipped}")
     print(f"🗂️ Log file saved as: {LOG_FILE}")
-    print("📍 Last checkpoint saved at:", CHECKPOINT_FILE)
     print("-------------------")
-    print("🎯 Batch complete! You can safely stop and resume anytime.")
+    print("🎯 Batch complete!")
 
 
 # ---- FLASK WEB SERVICE FOR RENDER ----
