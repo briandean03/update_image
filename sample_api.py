@@ -22,28 +22,14 @@ NEW_IMAGE_PATH = "/pictures/"
 OLD_EXTENSION = ".jpg"
 NEW_EXTENSION = ".webp"
 
-PER_PAGE = 20
-START_PAGE = int(os.getenv("START_PAGE", 51))
+PER_PAGE = int(os.getenv("PER_PAGE", 20))  # ← ADDED THIS
+START_PAGE = int(os.getenv("START_PAGE", 1))
 END_PAGE = int(os.getenv("END_PAGE", 100))
-DELAY_SECONDS = float(os.getenv("DELAY_SECONDS", 0.8))
+DELAY_SECONDS = float(os.getenv("DELAY_SECONDS", 10))  # ← CHANGED DEFAULT TO 10
 
-CHECKPOINT_FILE = "checkpoint.json"
 LOG_FILE = f"image_update_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
 
 # ---- HELPER FUNCTIONS ----
-
-def load_checkpoint():
-    if os.path.exists(CHECKPOINT_FILE):
-        with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f: 
-            try:
-                return json.load(f)
-            except json.JSONDecodeError:
-                return {}
-    return {}
-
-def save_checkpoint(page, product_id=None):
-    with open(CHECKPOINT_FILE, "w", encoding="utf-8") as f:
-        json.dump({"last_page": page, "last_product_id": product_id}, f)
 
 def transform_image_url(url: str) -> str:
     """
@@ -85,21 +71,54 @@ def normalize_urls(raw_value):
     return []
 
 
+# ---- FLASK WEB SERVICE FOR RENDER ----
+
+app = Flask(__name__)
+
+# Global progress tracker
+progress = {
+    "status": "not started",
+    "current_page": 0,
+    "total_pages": 0,
+    "products_checked": 0,
+    "products_updated": 0,
+    "products_skipped": 0,
+    "start_time": None,
+    "last_update": None
+}
+
+@app.route("/")
+def home():
+    return "🟢 Secrab Image Updater running (Render Web Service mode)"
+
+@app.route("/status")
+def status():
+    return jsonify(progress)
+
 # ---- MAIN LOGIC ----
 
 def main():
-    # Remove checkpoint - always start fresh from START_PAGE
+    global progress
+    
+    progress["status"] = "running"
+    progress["total_pages"] = END_PAGE - START_PAGE + 1
+    progress["start_time"] = datetime.now().isoformat()
+    
     total_checked = 0
     total_updated = 0
     total_skipped = 0
 
     print(f"🔁 Starting from page {START_PAGE} to {END_PAGE}\n")
+    print(f"⏱️  Delay between pages: {DELAY_SECONDS} seconds\n")
 
     with open(LOG_FILE, mode="w", newline="", encoding="utf-8") as log_file:
         writer = csv.writer(log_file)
         writer.writerow(["page", "product_id", "product_name", "old_url", "new_url", "status"])
 
         for page in range(START_PAGE, END_PAGE + 1):
+            progress["current_page"] = page
+            progress["last_update"] = datetime.now().isoformat()
+            
             print(f"\n🔹 Fetching page {page} ...")
             response = requests.get(
                 API_URL,
@@ -122,23 +141,30 @@ def main():
 
             for product in products:
                 total_checked += 1
+                progress["products_checked"] = total_checked
+                
                 meta_data = product.get("meta_data", [])
                 image_meta = next((m for m in meta_data if m.get("key") == "product_images_url"), None)
                 if not image_meta:
                     total_skipped += 1
+                    progress["products_skipped"] = total_skipped
                     continue
 
                 urls = normalize_urls(image_meta.get("value"))
                 if not urls:
                     total_skipped += 1
+                    progress["products_skipped"] = total_skipped
                     continue
 
                 updated_urls = [transform_image_url(u) for u in urls]
                 if urls == updated_urls:
                     total_skipped += 1
+                    progress["products_skipped"] = total_skipped
                     continue
 
                 total_updated += 1
+                progress["products_updated"] = total_updated
+                
                 print(f"\n🟩 Product ID: {product['id']} | {product['name']}")
                 for old, new in zip(urls, updated_urls):
                     if old != new:
@@ -162,6 +188,9 @@ def main():
 
             time.sleep(DELAY_SECONDS)
 
+    progress["status"] = "completed"
+    progress["last_update"] = datetime.now().isoformat()
+    
     print("\n----- SUMMARY -----")
     print(f"✅ Pages processed: {START_PAGE} → {END_PAGE}")
     print(f"✅ Products checked: {total_checked}")
@@ -172,27 +201,11 @@ def main():
     print("🎯 Batch complete!")
 
 
-# ---- FLASK WEB SERVICE FOR RENDER ----
-
-app = Flask(__name__)
-
-@app.route("/")
-def home():
-    return "🟢 Secrab Image Updater running (Render Web Service mode)"
-
-@app.route("/status")
-def status():
-    if os.path.exists(CHECKPOINT_FILE):
-        with open(CHECKPOINT_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        return jsonify(data)
-    return jsonify({"status": "no checkpoint yet"})
-
-def start_updater():
-    main()
-
 if __name__ == "__main__":
     # Run the updater in background
     threading.Thread(target=start_updater, daemon=True).start()
     # Start Flask app to keep Render alive
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+
+def start_updater():
+    main()
