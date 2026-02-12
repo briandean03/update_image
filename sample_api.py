@@ -102,7 +102,8 @@ def main():
             response = requests.get(
                 API_URL,
                 auth=(CONSUMER_KEY, CONSUMER_SECRET),
-                params={"per_page": PER_PAGE, "page": page}
+                params={"per_page": PER_PAGE, "page": page},
+                timeout = 60
             )
 
             if response.status_code != 200:
@@ -152,7 +153,8 @@ def main():
                 update = requests.put(
                     f"{API_URL}/{product['id']}",
                     auth=(CONSUMER_KEY, CONSUMER_SECRET),
-                    json=payload
+                    json=payload,
+                    timeout = 60
                 )
 
                 if update.status_code == 200:
