@@ -7,6 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from flask import Flask, jsonify
 import threading
+import re
 
 # ---- LOAD ENV ----
 load_dotenv()
@@ -48,8 +49,13 @@ def save_checkpoint(page, product_id=None):
 def transform_image_url(url: str) -> str:
     if not url or "static.recar.lt" not in url:
         return url
+
+    # Replace /images/ → /pictures/
     transformed_url = url.replace(OLD_IMAGE_PATH, NEW_IMAGE_PATH)
-    transformed_url = transformed_url.replace(OLD_EXTENSION, NEW_EXTENSION).replace(".JPG", NEW_EXTENSION)
+
+    # Replace .jpg or .jpeg (any case) → .webp
+    transformed_url = re.sub(r'\.(jpe?g)$', '.webp', transformed_url, flags=re.IGNORECASE)
+
     return transformed_url
 
 def normalize_urls(raw_value):
